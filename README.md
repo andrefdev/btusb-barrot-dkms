@@ -3,6 +3,8 @@
 Patched `btusb` driver (DKMS) for Bluetooth USB adapters with a **Barrot** chip,
 such as the **UGREEN Bluetooth 5.4 adapter** (`33fa:0010`), packaged for Arch Linux.
 
+**Installation guide:** [English](docs/INSTALL.md) · [Español](docs/INSTALL.es.md)
+
 ## The problem
 
 With the stock kernel driver the adapter drops off USB and reconnects every few
@@ -52,6 +54,11 @@ Only for Barrot devices (`33fa:0010`, `33fa:0012`), inside `btusb`:
   (`linux-headers`, `linux-lts-headers`, ...). Older kernels are skipped.
 
 ## Install
+
+Quick version below. The [installation guide](docs/INSTALL.md)
+([en español](docs/INSTALL.es.md)) covers checking that you have this adapter,
+installing the kernel headers, verifying the fix, pairing BLE devices and
+troubleshooting.
 
 ```sh
 git clone https://github.com/andrefdev/btusb-barrot-dkms.git
