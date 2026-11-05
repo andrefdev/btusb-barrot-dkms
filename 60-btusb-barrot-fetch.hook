@@ -1,0 +1,15 @@
+# pacman runs hooks without network access, including the DKMS one
+# (70-dkms-install.hook). This one runs first, with network access, and caches
+# the exact btusb sources for every kernel; the DKMS build takes them from there.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/lib/modules/*/build/include/
+Target = usr/src/btusb-barrot-*/dkms.conf
+
+[Action]
+Description = Fetching btusb sources for the Barrot Bluetooth patch...
+When = PostTransaction
+Exec = /usr/bin/btusb-barrot-fix --prefetch
+NetworkAccess = allowed

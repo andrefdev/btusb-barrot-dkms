@@ -1,0 +1,127 @@
+--- a/btusb.c	2026-10-05 20:00:22.099879969 -0500
++++ b/btusb.c	2026-10-05 20:00:22.101107860 -0500
+@@ -2280,6 +2280,63 @@
+ 	return 0;
+ }
+ 
++static int btusb_recv_event_barrot(struct hci_dev *hdev, struct sk_buff *skb);
++
++static void btusb_barrot_inject_evt(struct hci_dev *hdev, u8 evt,
++				    const void *data, u8 len)
++{
++	struct sk_buff *skb;
++
++	skb = bt_skb_alloc(HCI_EVENT_HDR_SIZE + len, GFP_ATOMIC);
++	if (!skb)
++		return;
++
++	hci_skb_pkt_type(skb) = HCI_EVENT_PKT;
++	skb_put_u8(skb, evt);
++	skb_put_u8(skb, len);
++	skb_put_data(skb, data, len);
++	hci_recv_frame(hdev, skb);
++}
++
++/* Barrot BR8554/BR8654 answer LE Read Remote Used Features with Controller
++ * Busy right after connecting, which aborts pairing. Complete it locally.
++ */
++static bool btusb_barrot_fake_remote_feat(struct hci_dev *hdev,
++					  struct sk_buff *skb)
++{
++	struct btusb_data *data = hci_get_drvdata(hdev);
++	struct hci_command_hdr *hdr;
++	struct hci_ev_cmd_status cs;
++	struct {
++		u8 subevent;
++		struct hci_ev_le_remote_feat_complete ev;
++	} __packed fc = {};
++
++	if (data->recv_event != btusb_recv_event_barrot ||
++	    skb->len < HCI_COMMAND_HDR_SIZE + 2)
++		return false;
++
++	hdr = (void *)skb->data;
++	if (__le16_to_cpu(hdr->opcode) != HCI_OP_LE_READ_REMOTE_FEATURES)
++		return false;
++
++	cs.status = 0x00;
++	cs.ncmd = 1;
++	cs.opcode = hdr->opcode;
++
++	fc.subevent = HCI_EV_LE_REMOTE_FEAT_COMPLETE;
++	fc.ev.status = 0x00;
++	memcpy(&fc.ev.handle, skb->data + HCI_COMMAND_HDR_SIZE, 2);
++	fc.ev.features[0] = HCI_LE_ENCRYPTION;
++
++	bt_dev_info(hdev, "Barrot: faking LE Read Remote Used Features");
++	kfree_skb(skb);
++
++	btusb_barrot_inject_evt(hdev, HCI_EV_CMD_STATUS, &cs, sizeof(cs));
++	btusb_barrot_inject_evt(hdev, HCI_EV_LE_META, &fc, sizeof(fc));
++	return true;
++}
++
+ static int btusb_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
+ {
+ 	struct urb *urb;
+@@ -2288,6 +2345,9 @@
+ 
+ 	switch (hci_skb_pkt_type(skb)) {
+ 	case HCI_COMMAND_PKT:
++		if (btusb_barrot_fake_remote_feat(hdev, skb))
++			return 0;
++
+ 		urb = alloc_ctrl_urb(hdev, skb);
+ 		if (IS_ERR(urb))
+ 			return PTR_ERR(urb);
+@@ -2841,6 +2901,28 @@
+ 	return hci_recv_frame(hdev, skb);
+ }
+ 
++/* Barrot BR8554/BR8654 advertise LE extended advertising but mixing it with
++ * legacy scan commands gets them disallowed, so hide the feature bit.
++ */
++static int btusb_recv_event_barrot(struct hci_dev *hdev, struct sk_buff *skb)
++{
++	struct hci_ev_cmd_complete *cc;
++	u8 *rp;
++
++	if (skb->len >= HCI_EVENT_HDR_SIZE + sizeof(*cc) + 1 + 8 &&
++	    skb->data[0] == HCI_EV_CMD_COMPLETE) {
++		cc = (void *)(skb->data + HCI_EVENT_HDR_SIZE);
++		rp = skb->data + HCI_EVENT_HDR_SIZE + sizeof(*cc);
++		if (__le16_to_cpu(cc->opcode) == HCI_OP_LE_READ_LOCAL_FEATURES &&
++		    rp[0] == 0x00) {
++			rp[1 + 1] &= ~(HCI_LE_EXT_ADV | HCI_LE_PERIODIC_ADV);
++			bt_dev_info(hdev, "Barrot: hiding LE extended advertising");
++		}
++	}
++
++	return hci_recv_frame(hdev, skb);
++}
++
+ static void btusb_mtk_claim_iso_intf(struct btusb_data *data)
+ {
+ 	struct btmtk_data *btmtk_data;
+@@ -4257,6 +4339,8 @@
+ 		priv_size += sizeof(struct btrealtek_data);
+ 
+ 		data->recv_event = btusb_recv_event_realtek;
++	} else if (id->driver_info & BTUSB_BARROT) {
++		data->recv_event = btusb_recv_event_barrot;
+ 	} else if (id->driver_info & BTUSB_MEDIATEK) {
+ 		/* Allocate extra space for Mediatek device */
+ 		priv_size += sizeof(struct btmtk_data);
+@@ -4449,6 +4533,12 @@
+ 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_WRITE_AUTH_PAYLOAD_TIMEOUT);
+ 	}
+ 
++	if (id->driver_info & BTUSB_BARROT) {
++		/* Barrot BR8554/BR8654 hang on LE extended scan/create conn */
++		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_SCAN);
++		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_CREATE_CONN);
++	}
++
+ 	if (!reset)
+ 		hci_set_quirk(hdev, HCI_QUIRK_RESET_ON_CLOSE);
+ 

@@ -1,0 +1,14 @@
+#!/bin/bash
+# Show a desktop notification if btusb-barrot-autofix.service failed during
+# this boot. It may still be building, so wait up to 10 minutes.
+unit=btusb-barrot-autofix.service
+for _ in $(seq 120); do
+	state=$(systemctl show -P ActiveState "$unit")
+	[ "$state" = active ] || [ "$state" = activating ] || break
+	sleep 5
+done
+[ "$state" = failed ] || exit 0
+
+notify-send -u critical -i bluetooth -a "Barrot Bluetooth" \
+	"The Bluetooth adapter patch could not be built" \
+	"Kernel $(uname -r): the adapter will keep reconnecting. Open a terminal and run: sudo btusb-barrot-fix"

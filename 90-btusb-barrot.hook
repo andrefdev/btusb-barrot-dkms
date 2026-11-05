@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/lib/modules/*/build/include/
+Target = usr/src/btusb-barrot-*/dkms.conf
+
+[Action]
+Description = Checking the Barrot Bluetooth patch (btusb-barrot)...
+When = PostTransaction
+Exec = /usr/bin/btusb-barrot-fix --hook

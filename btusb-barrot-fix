@@ -1,0 +1,99 @@
+#!/bin/bash
+# Make sure the patched btusb for Barrot Bluetooth adapters (UGREEN BT5.4,
+# 33fa:0010) is built and installed for the running kernel and loaded in
+# memory; if not, rebuild it with DKMS and reload the driver.
+#
+#   btusb-barrot-fix              repair the running kernel (udev-triggered service)
+#   btusb-barrot-fix --hook       report every kernel and reload a new build (pacman hook)
+#   btusb-barrot-fix --prefetch   cache the sources for every kernel (pacman hook with network)
+set -u
+PKG=btusb-barrot
+VER=@VER@
+FETCH=/usr/src/$PKG-$VER/fetch-src.sh
+
+installed() {
+	dkms status "$PKG/$VER" -k "$1" 2>/dev/null | grep -q ': installed'
+}
+
+# Barrot support (BTUSB_BARROT) appeared in 6.18, see BUILD_EXCLUSIVE_KERNEL_MIN
+supported() {
+	[ "$(printf '%s\n' 6.18 "${1%%-*}" | sort -V | head -1)" = 6.18 ]
+}
+
+build_log() {
+	echo "/var/lib/dkms/$PKG/$VER/$1/$(uname -m)/log/make.log"
+}
+
+upstream_fix() {
+	grep -qs 'already includes upstream Barrot support' "$(build_log "$1")"
+}
+
+# If the btusb in memory is not the installed one, reload it
+reload() {
+	if [ -d /sys/module/btusb ] &&
+	   [ "$(cat /sys/module/btusb/srcversion 2>/dev/null)" != "$(modinfo -F srcversion btusb 2>/dev/null)" ]; then
+		echo "btusb-barrot: reloading btusb"
+		modprobe -r btusb && modprobe btusb
+		systemctl try-restart bluetooth.service
+	fi
+}
+
+prefetch() {
+	local k
+	for k in /usr/lib/modules/*/build; do
+		"$FETCH" --prefetch "$(basename "$(dirname "$k")")" || true
+	done
+}
+
+hook() {
+	local k kver
+	for k in /usr/lib/modules/*/build; do
+		kver=$(basename "$(dirname "$k")")
+		supported "$kver" || continue
+		if ! installed "$kver"; then
+			echo "==> WARNING: the Barrot Bluetooth patch (btusb-barrot) was NOT built for $kver."
+			echo "    It is retried when the adapter shows up on that kernel, or run: sudo btusb-barrot-fix"
+		elif upstream_fix "$kver"; then
+			echo "==> $kver already ships the official Barrot fix: btusb-barrot-dkms can be removed."
+		fi
+	done
+	installed "$(uname -r)" && reload
+}
+
+fix() {
+	local kver i
+	kver=$(uname -r)
+	supported "$kver" || {
+		echo "btusb-barrot: $kver is older than 6.18, which is required for Barrot support" >&2
+		return 1
+	}
+	if ! installed "$kver"; then
+		echo "btusb-barrot: not installed for $kver, building with DKMS"
+		# Several attempts in case the network is not up yet at boot
+		for i in 1 2 3; do
+			dkms install "$PKG/$VER" -k "$kver" --force && break
+			[ "$i" -lt 3 ] && sleep 30
+		done
+		installed "$kver" || {
+			echo "btusb-barrot: could not build for $kver" >&2
+			return 1
+		}
+	fi
+
+	# Built offline from another version's sources: rebuild with the exact ones
+	if grep -qs 'NON-EXACT copy' "$(build_log "$kver")" && "$FETCH" --prefetch "$kver"; then
+		echo "btusb-barrot: rebuilding $kver with the exact sources"
+		dkms install "$PKG/$VER" -k "$kver" --force
+	fi
+
+	reload
+	echo "btusb-barrot: OK for $kver"
+}
+
+[ "$EUID" -eq 0 ] || { echo "Run with sudo." >&2; exit 1; }
+case "${1:-}" in
+	--hook) hook ;;
+	--prefetch) prefetch ;;
+	"") fix ;;
+	*) echo "usage: btusb-barrot-fix [--hook | --prefetch]" >&2; exit 2 ;;
+esac

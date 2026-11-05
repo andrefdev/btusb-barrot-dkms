@@ -1,0 +1,10 @@
+post_install() {
+	echo "==> btusb-barrot is rebuilt automatically with DKMS for every kernel that"
+	echo "    has its headers installed (e.g. linux-headers, linux-lts-headers)."
+	echo "    If the adapter misbehaves after a kernel update: sudo btusb-barrot-fix"
+}
+
+post_remove() {
+	rm -rf /var/cache/btusb-barrot
+	echo "==> Reload the stock driver with: sudo modprobe -r btusb && sudo modprobe btusb"
+}

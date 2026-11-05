@@ -1,0 +1,3 @@
+# Check (and if needed rebuild/reload) the patched btusb whenever a Barrot
+# Bluetooth adapter shows up, at boot or when plugged in.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="33fa", ATTR{idProduct}=="0010|0012", TAG+="systemd", ENV{SYSTEMD_WANTS}+="btusb-barrot-autofix.service"

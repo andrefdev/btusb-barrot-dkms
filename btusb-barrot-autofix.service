@@ -1,0 +1,13 @@
+[Unit]
+Description=Rebuild and reload the patched btusb for Barrot Bluetooth adapters if needed
+Wants=network-online.target
+After=network-online.target
+# Started by udev whenever a Barrot adapter shows up. With the stock driver the
+# adapter re-enumerates every few seconds, so cap the attempts.
+StartLimitIntervalSec=1h
+StartLimitBurst=3
+
+[Service]
+# simple, not oneshot: a rebuild must not hold up the boot
+Type=simple
+ExecStart=/usr/bin/btusb-barrot-fix

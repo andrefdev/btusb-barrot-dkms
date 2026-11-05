@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Barrot Bluetooth patch check
+Comment=Warns if the patched btusb for Barrot Bluetooth adapters could not be built
+Exec=/usr/lib/btusb-barrot/notify
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
